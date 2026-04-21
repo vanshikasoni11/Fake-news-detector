@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Small I/O utilities shared across training and app code.
+Production-grade I/O utilities for ML + Web app.
+Safe, reusable, and deployment-ready.
 """
 
 from __future__ import annotations
@@ -8,8 +9,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Union, Mapping
+import logging
 
 PathLike = Union[str, Path]
+
+# ---------------- LOGGING ----------------
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 __all__ = [
     "ensure_outdir",
@@ -17,64 +23,66 @@ __all__ = [
     "load_json",
 ]
 
+
+# ---------------- DIRECTORY HANDLING ----------------
 def ensure_outdir(path: PathLike) -> Path:
     """
-    Ensure a directory exists; create parents if needed.
-
-    Parameters
-    ----------
-    path : str | Path
-        Directory path to create/ensure.
-
-    Returns
-    -------
-    Path
-        Resolved directory path.
+    Ensure directory exists (safe for ML pipelines & deployment).
     """
-    p = Path(path)
-    p.mkdir(parents=True, exist_ok=True)
-    return p.resolve()
+    try:
+        p = Path(path)
+        p.mkdir(parents=True, exist_ok=True)
+        return p.resolve()
+    except Exception as e:
+        logger.error(f"Failed to create directory {path}: {e}")
+        raise
 
 
+# ---------------- SAFE JSON SAVE (ATOMIC WRITE) ----------------
 def save_json(obj: Mapping[str, Any] | Any, path: PathLike, *, indent: int = 2) -> Path:
     """
-    Save a Python object as pretty-printed JSON.
-
-    Parameters
-    ----------
-    obj : Any
-        JSON-serializable object.
-    path : str | Path
-        Output file path.
-    indent : int
-        JSON indent spacing.
-
-    Returns
-    -------
-    Path
-        The written file path.
+    Save JSON safely using atomic write (prevents file corruption).
     """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open("w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=indent)
-    return p.resolve()
+
+    temp_path = p.with_suffix(".tmp")
+
+    try:
+        with temp_path.open("w", encoding="utf-8") as f:
+            json.dump(obj, f, indent=indent, ensure_ascii=False)
+
+        temp_path.replace(p)  # atomic move
+        logger.info(f"JSON saved: {p}")
+
+        return p.resolve()
+
+    except Exception as e:
+        logger.error(f"Failed to save JSON {path}: {e}")
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
 
 
+# ---------------- SAFE JSON LOAD ----------------
 def load_json(path: PathLike) -> Any:
     """
-    Load JSON from disk.
-
-    Parameters
-    ----------
-    path : str | Path
-        JSON file path.
-
-    Returns
-    -------
-    Any
-        Parsed JSON.
+    Load JSON safely with error handling.
     """
     p = Path(path)
-    with p.open("r", encoding="utf-8") as f:
-        return json.load(f)
+
+    if not p.exists():
+        logger.warning(f"JSON file not found: {p}")
+        return None
+
+    try:
+        with p.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON format in {path}: {e}")
+        raise
+
+    except Exception as e:
+        logger.error(f"Failed to load JSON {path}: {e}")
+        raise
