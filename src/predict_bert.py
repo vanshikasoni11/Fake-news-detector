@@ -20,12 +20,13 @@ def predict(text):
     # DEBUG (important)
     print("REAL:", real_prob, "FAKE:", fake_prob)
 
-    # FIXED LOGIC
-    if real_prob > 0.75:
+    if real_prob >= 0.6:
         label = "REAL"
-    elif fake_prob > 0.75:
+    elif real_prob <= 0.4:
         label = "FAKE"
     else:
         label = "UNCERTAIN"
 
-    return label, real_prob, fake_prob
+    confidence = max(real_prob, fake_prob)
+
+    return label, real_prob, fake_prob, confidence

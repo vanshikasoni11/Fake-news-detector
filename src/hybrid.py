@@ -1,31 +1,59 @@
-from predict_bert import predict
-from fact_check import fact_check
+import joblib
+import re
+from pathlib import Path
 
+# ---------- CLEAN TEXT ----------
+def clean_text(text):
+    text = text.lower()
+    text = re.sub(r"http\S+", "", text)
+    text = re.sub(r"[^a-z\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+# ---------- LOAD MODEL ----------
+BASE_DIR = Path(__file__).resolve().parents[1]
+MODEL_PATH = BASE_DIR / "outputs" / "model.joblib"
+VEC_PATH = BASE_DIR / "outputs" / "vectorizer.joblib"
+
+clf = joblib.load(MODEL_PATH)
+vec = joblib.load(VEC_PATH)
+
+# ---------- MAIN FUNCTION ----------
 def hybrid_predict(text):
 
-    label, real, fake = predict(text)
-    facts = fact_check(text)
+    # Clean input
+    clean = clean_text(text)
 
-    final_label = label
+    # Transform
+    X = vec.transform([clean])
 
-    # ONLY override if strong evidence
-    if facts:
-        for f in facts:
-            rating = str(f.get("rating", "")).lower()
+    # Predict probability
+    real_prob = float(clf.predict_proba(X)[0, 1])  # 1 = REAL
+    fake_prob = 1 - real_prob
 
-            if "false" in rating and fake > 0.7:
-                final_label = "FAKE"
-            elif "true" in rating and real > 0.7:
-                final_label = "REAL"
-
-    # safety fallback
-    if max(real, fake) < 0.6:
+    # Label logic (balanced)
+    if real_prob >= 0.6:
+        final_label = "REAL"
+    elif real_prob <= 0.4:
+        final_label = "FAKE"
+    else:
         final_label = "UNCERTAIN"
 
+    # ML label (simple)
+    ml_label = "REAL" if real_prob > 0.5 else "FAKE"
+
+    # Dummy fact-check (for UI)
+    facts = []
+    keywords = ["breaking", "shocking", "viral", "exclusive"]
+
+    for word in keywords:
+        if word in text.lower():
+            facts.append(f"Suspicious keyword detected: {word}")
+
+    # RETURN (VERY IMPORTANT STRUCTURE)
     return {
         "final_label": final_label,
-        "ml_label": label,
-        "real_prob": real,
-        "fake_prob": fake,
+        "ml_label": ml_label,
+        "real_prob": round(real_prob, 3),
+        "fake_prob": round(fake_prob, 3),
         "facts": facts
     }
