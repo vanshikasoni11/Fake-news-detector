@@ -1,7 +1,9 @@
-fastapi
-uvicorn
 streamlit
-torch
-transformers
-pydantic
+pandas
+scikit-learn
+joblib
 requests
+python-dotenv
+transformers
+torch
+numpy
